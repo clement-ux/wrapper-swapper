@@ -1,5 +1,5 @@
-# wrapper-swapper
-Swapper for cvxCRV or yveCRV into sdCRV
+# Wrapper-swapper
+Swapper for cvxCRV or yveCRV into sdCRV in one tx
 
 Main smart contract on src/WrapperSwap.sol
 Interfaces on src/Interfaces/
