@@ -16,7 +16,6 @@ contract cvxCRVsdCRVSwap is UtilsTest {
     // Existing contract
     ICRVDepositor depositor = ICRVDepositor(MainnetAddresses.CRV_DEPOSITOR);
     IStableSwap cvxCRVCRVPool = IStableSwap(MainnetAddresses.CVXCRVCRV_POOL);
-    IveCRV veCRV = IveCRV(MainnetAddresses.VECRV);
     ILV4 gaugeSDCRV = ILV4(MainnetAddresses.SDCRV_GAUGE);
     IyveCRV yveCRV = IyveCRV(MainnetAddresses.YVECRV);
     IUniswapRouter sushiRouter = IUniswapRouter(MainnetAddresses.SUSHIROUTER);
@@ -24,493 +23,236 @@ contract cvxCRVsdCRVSwap is UtilsTest {
     // ERC20
     ERC20 cvxCRV = ERC20(MainnetAddresses.CVXCRV);
     ERC20 crv = ERC20(MainnetAddresses.CRV);
-    ERC20 sdcrv = ERC20(MainnetAddresses.SDCRV);
+    ERC20 sdCRV = ERC20(MainnetAddresses.SDCRV);
 
-    // Contructor Arguments
+    // Global Variables
+    uint256 amount_1B = 1_000_000_000e18;
+    uint256 amount_1M = 1_000_000e18;
+    uint256 amount_1k = 1_000e18;
+    uint256 amount_1 = 1e18;
+    uint256 slippage = 100;
+
     address[] yveCRVtoCRVPath = [
         MainnetAddresses.YVECRV,
         MainnetAddresses.WETH,
         MainnetAddresses.CRV
     ];
 
-    // Global Variables
-    uint256 amount_1B = 1_000_000_000 * (10e18);
-    uint256 amount_1M = 1_000_000 * (10e18);
-    uint256 amount_1k = 1_000 * (10e18);
-    uint256 amount_1 = 1 * (10e18);
-    uint256 slippage = 100;
-
     // ######################### Start Testing ######################### //
     /// @notice Setup the process
     function setUp() external {
-        wrapperSwap = new WrapperSwap(yveCRVtoCRVPath);
+        vm.prank(deployer);
+        wrapperSwap = new WrapperSwap();
     }
 
-    // ---------------------------- Convex ---------------------------- //
-    /// @notice Swap cvxCRV into sdCRV without locking without stacking
-    function test01_cvxCRVsdCRV_SwapNoLockNoStack(uint256 _amount) external {
-        // Fuzz Test
-        vm.assume(_amount > amount_1);
-        vm.assume(_amount < amount_1M);
-        //_amount = amount_1M;
+    function test01_swapOnCurve() external {
+        deal(address(cvxCRV), address(wrapperSwap), amount_1M);
+        vm.startPrank(address(wrapperSwap));
 
-        // Give user1 1M cvxCRV
-        //uint256 _amount = amount_1M;
-        deal(address(cvxCRV), user1, _amount);
+        uint256 crvBefore = crv.balanceOf(address(wrapperSwap));
 
-        // Impersonate account
-        vm.startPrank(user1);
+        uint256 crvEstimated = cvxCRVCRVPool.get_dy(1, 0, amount_1M);
+        wrapperSwap.swapOnCurve(amount_1M, slippage);
 
-        // States Variables Before
-        uint256 crvDepositorBalanceBefore = crv.balanceOf(
-            MainnetAddresses.CRV_DEPOSITOR
-        );
-        uint256 totalSwappedBefore = wrapperSwap.total_cvxCRVsdCRV();
+        uint256 crvAfter = crv.balanceOf(address(wrapperSwap));
 
-        // Start process
-        uint256 crvEstimated = cvxCRVCRVPool.get_dy(1, 0, _amount);
-        cvxCRV.approve(address(wrapperSwap), _amount);
-        uint256 crvSwapped = wrapperSwap.cvxCRVsdCRVSwap(
-            _amount,
-            100,
-            false,
-            false
-        );
-
-        // States Variables After
-        uint256 balance_sdcrv = sdcrv.balanceOf(user1);
-        uint256 crvDepositorBalanceAfter = crv.balanceOf(
-            MainnetAddresses.CRV_DEPOSITOR
-        );
-        uint256 totalSwappedAfter = wrapperSwap.total_cvxCRVsdCRV();
-
-        // Verification
-        uint256 realCRVAmount = crvSwapped -
-            ((crvSwapped * depositor.lockIncentive()) /
-                depositor.FEE_DENOMINATOR());
-
-        //console.log("crvSwapped\t", crvSwapped);
-        //console.log("realCRVAmount\t", realCRVAmount);
-        //console.log("balance_sdcrv\t", balance_sdcrv);
-
-        assert(balance_sdcrv > 0);
-        assert(crvSwapped >= crvEstimated);
-        assert(realCRVAmount == balance_sdcrv);
-        assert(balance_sdcrv < crvSwapped);
-        assert(
-            (crvDepositorBalanceAfter - crvDepositorBalanceBefore) == crvSwapped
-        );
-        assert((totalSwappedAfter - totalSwappedBefore) == crvSwapped);
+        assertEq(crvAfter, crvBefore + crvEstimated);
     }
 
-    /// @notice Swap cvxCRV into sdCRV without locking with stacking
-    function test02_cvxCRVsdCRV_SwapNoLockStack(uint256 _amount) external {
-        // Fuzz Test
-        vm.assume(_amount > amount_1);
-        vm.assume(_amount < amount_1M);
-        //_amount = amount_1M;
+    function test02_swapOnSushi() external {
+        deal(address(yveCRV), address(wrapperSwap), amount_1k);
+        vm.startPrank(address(wrapperSwap));
 
-        // Give user1 1M cvxCRV
-        deal(address(cvxCRV), user1, _amount);
-
-        // Impersonate account
-        vm.startPrank(user1);
-
-        // States Variables Before
-        uint256 crvDepositorBalanceBefore = crv.balanceOf(
-            MainnetAddresses.CRV_DEPOSITOR
-        );
-        uint256 totalSwappedBefore = wrapperSwap.total_cvxCRVsdCRV();
-
-        // Start process
-        uint256 crvEstimated = cvxCRVCRVPool.get_dy(1, 0, _amount);
-        cvxCRV.approve(address(wrapperSwap), _amount);
-        uint256 crvSwapped = wrapperSwap.cvxCRVsdCRVSwap(
-            _amount,
-            100,
-            false,
-            true
-        );
-
-        // States Variables After
-        uint256 balance_sdcrvGauge = gaugeSDCRV.balanceOf(user1); //sdcrv.balanceOf(user1);
-        uint256 crvDepositorBalanceAfter = crv.balanceOf(
-            MainnetAddresses.CRV_DEPOSITOR
-        );
-        uint256 totalSwappedAfter = wrapperSwap.total_cvxCRVsdCRV();
-
-        // Verification
-        uint256 realCRVAmount = crvSwapped -
-            ((crvSwapped * depositor.lockIncentive()) /
-                depositor.FEE_DENOMINATOR());
-
-        //console.log("crvSwapped\t", crvSwapped);
-        //console.log("realCRVAmount\t\t", realCRVAmount);
-        //console.log("balance_sdcrvGauge\t", balance_sdcrvGauge);
-
-        assert(balance_sdcrvGauge > 0);
-        assert(crvSwapped >= crvEstimated);
-        assert(realCRVAmount == balance_sdcrvGauge);
-        assert(balance_sdcrvGauge < crvSwapped);
-        assert(
-            (crvDepositorBalanceAfter - crvDepositorBalanceBefore) == crvSwapped
-        );
-        assert((totalSwappedAfter - totalSwappedBefore) == crvSwapped);
-    }
-
-    /// @notice Swap cvxCRV into sdCRV with locking without stacking
-    function test03_cvxCRVsdCRV_SwapLockNoStack(uint256 _amount) external {
-        // Fuzz Test
-        vm.assume(_amount > amount_1);
-        vm.assume(_amount < amount_1M);
-        //_amount = amount_1M;
-
-        // Simulate user1 swap no Lock
-        deal(address(cvxCRV), user1, _amount);
-        vm.startPrank(user1);
-        cvxCRV.approve(address(wrapperSwap), _amount);
-        wrapperSwap.cvxCRVsdCRVSwap(_amount, 100, false, false);
-        vm.stopPrank();
-
-        // Give user1 1M cvxCRV
-        deal(address(cvxCRV), user2, _amount);
-
-        // Impersonate account
-        vm.startPrank(user2);
-
-        // State Variable Before
-        uint256 totalSwappedBefore = wrapperSwap.total_cvxCRVsdCRV();
-
-        // Start process
-        uint256 incentive = depositor.incentiveToken();
-        uint256 crvEstimated = cvxCRVCRVPool.get_dy(1, 0, _amount);
-        cvxCRV.approve(address(wrapperSwap), _amount);
-        uint256 crvSwapped = wrapperSwap.cvxCRVsdCRVSwap(
-            _amount,
-            100,
-            true,
-            false
-        );
-
-        // State Variables After
-        uint256 crvDepositorAfter = crv.balanceOf(
-            MainnetAddresses.CRV_DEPOSITOR
-        );
-        uint256 crvLockerAfter = crv.balanceOf(MainnetAddresses.CRV_LOCKER);
-        uint256 totalSwappedAfter = wrapperSwap.total_cvxCRVsdCRV();
-
-        // Verification
-        uint256 balance_sdcrv = sdcrv.balanceOf(user2);
-
-        uint256 realCRVAmount = crvSwapped + incentive;
-
-        //console.log("crvSwapped\t", crvSwapped);
-        //console.log("realCRVAmount\t", realCRVAmount);
-        //console.log("balance_sdcrv\t", balance_sdcrv);
-
-        assert(incentive > 0);
-        assert(balance_sdcrv > 0);
-        assert(crvSwapped >= crvEstimated);
-        assert(realCRVAmount == balance_sdcrv);
-        assert(balance_sdcrv > crvSwapped);
-        assert(crvDepositorAfter == 0);
-        assert(crvLockerAfter == 0);
-        assert((totalSwappedAfter - totalSwappedBefore) == crvSwapped);
-    }
-
-    /// @notice Swap cvxCRV into sdCRV with locking without stacking
-    function test04_cvxCRVsdCRV_SwapLockStack(uint256 _amount) external {
-        // Fuzz Test
-        vm.assume(_amount > amount_1);
-        vm.assume(_amount < amount_1M);
-        //_amount = amount_1M;
-
-        // Simulate user1 swap no Lock
-        deal(address(cvxCRV), user1, _amount);
-        vm.startPrank(user1);
-        cvxCRV.approve(address(wrapperSwap), _amount);
-        wrapperSwap.cvxCRVsdCRVSwap(_amount, 100, false, false);
-        vm.stopPrank();
-
-        // Give user1 1M cvxCRV
-        deal(address(cvxCRV), user2, _amount);
-
-        // Impersonate account
-        vm.startPrank(user2);
-
-        // State Variable Before
-        uint256 totalSwappedBefore = wrapperSwap.total_cvxCRVsdCRV();
-
-        // Start process
-        uint256 incentive = depositor.incentiveToken();
-        uint256 crvEstimated = cvxCRVCRVPool.get_dy(1, 0, _amount);
-        cvxCRV.approve(address(wrapperSwap), _amount);
-        uint256 crvSwapped = wrapperSwap.cvxCRVsdCRVSwap(
-            _amount,
-            100,
-            true,
-            true
-        );
-
-        // State Variables After
-        uint256 crvDepositorAfter = crv.balanceOf(
-            MainnetAddresses.CRV_DEPOSITOR
-        );
-        uint256 crvLockerAfter = crv.balanceOf(MainnetAddresses.CRV_LOCKER);
-        uint256 totalSwappedAfter = wrapperSwap.total_cvxCRVsdCRV();
-
-        // Verification
-        uint256 balance_sdcrvGauge = gaugeSDCRV.balanceOf(user2);
-        uint256 realCRVAmount = crvSwapped + incentive;
-
-        //console.log("crvSwapped\t", crvSwapped);
-        //console.log("realCRVAmount\t", realCRVAmount);
-        //console.log("balance_sdcrvGauge\t", balance_sdcrvGauge);
-
-        assert(incentive > 0);
-        assert(balance_sdcrvGauge > 0);
-        assert(crvSwapped >= crvEstimated);
-        assert(realCRVAmount == balance_sdcrvGauge);
-        assert(balance_sdcrvGauge > crvSwapped);
-        assert(crvDepositorAfter == 0);
-        assert(crvLockerAfter == 0);
-        assert((totalSwappedAfter - totalSwappedBefore) == crvSwapped);
-    }
-
-    // ---------------------------- Yearn ---------------------------- //
-    /// @notice Swap yveCRV into sdCRV without locking without stacking
-    function test05_yveCRVsdCRV_SwapNoLockNoStack(uint256 _amount) external {
-        // Fuzz Test
-        vm.assume(_amount > amount_1);
-        vm.assume(_amount < amount_1M);
-        //_amount = amount_1M;
-
-        // Give user1 1M cvxCRV
-        deal(address(yveCRV), user1, _amount);
-        vm.startPrank(user1);
-
-        // States Variables Before
-        uint256 crvDepositorBalanceBefore = crv.balanceOf(
-            MainnetAddresses.CRV_DEPOSITOR
-        );
-        uint256 totalSwappedBefore = wrapperSwap.total_yveCRVsdCRV();
-
-        // Process
+        uint256 crvBefore = crv.balanceOf(address(wrapperSwap));
         uint256 crvEstimated = (
-            sushiRouter.getAmountsOut(_amount, yveCRVtoCRVPath)
+            sushiRouter.getAmountsOut(amount_1k, yveCRVtoCRVPath)
         )[yveCRVtoCRVPath.length - 1];
-        yveCRV.approve(address(wrapperSwap), _amount);
-        uint256 crvSwapped = wrapperSwap.yveCRVsdCRVSwap(
-            _amount,
+
+        wrapperSwap.swapOnSushi(amount_1k, slippage);
+
+        uint256 crvAfter = crv.balanceOf(address(wrapperSwap));
+
+        assertEq(crvAfter, crvBefore + crvEstimated);
+    }
+
+    function test11_sdCRVSwap() external {
+        deal(address(cvxCRV), user1, amount_1M);
+        vm.startPrank(user1);
+
+        //Before Swap
+        uint256 sdCRVBefore = sdCRV.balanceOf(user1);
+        uint256 crvDepBefore = crv.balanceOf(MainnetAddresses.CRV_DEPOSITOR);
+
+        //Swap
+        uint256 crvEstimated = cvxCRVCRVPool.get_dy(1, 0, amount_1M);
+        cvxCRV.approve(address(wrapperSwap), amount_1M);
+        uint256 crvSwapped = wrapperSwap.sdCRVSwap(
+            address(cvxCRV),
+            amount_1M,
             slippage,
             false,
             false
         );
 
-        // States Variables After
-        uint256 balance_sdcrv = sdcrv.balanceOf(user1);
-        uint256 crvDepositorBalanceAfter = crv.balanceOf(
-            MainnetAddresses.CRV_DEPOSITOR
-        );
-        uint256 totalSwappedAfter = wrapperSwap.total_yveCRVsdCRV();
-
-        // Verification
+        //After swap
+        uint256 sdCRVAfter = sdCRV.balanceOf(user1);
+        uint256 crvDepAfter = crv.balanceOf(MainnetAddresses.CRV_DEPOSITOR);
         uint256 realCRVAmount = crvSwapped -
             ((crvSwapped * depositor.lockIncentive()) /
                 depositor.FEE_DENOMINATOR());
 
-        //console.log("crvSwapped\t", crvSwapped);
-        //console.log("realCRVAmount\t", realCRVAmount);
-        //console.log("balance_sdcrv\t", balance_sdcrv);
-
-        assert(balance_sdcrv > 0);
-        assert(crvSwapped >= crvEstimated);
-        assert(realCRVAmount == balance_sdcrv);
-        assert(balance_sdcrv < crvSwapped);
-        assert(
-            (crvDepositorBalanceAfter - crvDepositorBalanceBefore) == crvSwapped
-        );
-        assert((totalSwappedAfter - totalSwappedBefore) == crvSwapped);
+        //Assert
+        assertEq(crvSwapped, crvEstimated);
+        assertGt(crvSwapped, sdCRVBefore + sdCRVAfter); // due to depositor fees
+        assertEq(sdCRVBefore + realCRVAmount, sdCRVAfter);
+        assertEq(crvSwapped, crvDepBefore + crvDepAfter);
     }
 
-    /// @notice Swap yveCRV into sdCRV without locking with stacking
-    function test06_yveCRVsdCRV_SwapNoLockStack(uint256 _amount) external {
-        // Fuzz Test
-        vm.assume(_amount > amount_1);
-        vm.assume(_amount < amount_1M);
-        //_amount = amount_1M;
-
-        // Give user1 1M cvxCRV
-        deal(address(yveCRV), user1, _amount);
-
-        // Impersonate account
+    function test12_sdCRVSwapStake() external {
+        deal(address(cvxCRV), user1, amount_1M);
         vm.startPrank(user1);
 
-        // States Variables Before
-        uint256 crvDepositorBalanceBefore = crv.balanceOf(
-            MainnetAddresses.CRV_DEPOSITOR
-        );
-        uint256 totalSwappedBefore = wrapperSwap.total_yveCRVsdCRV();
+        //Before Swap
+        uint256 sdCRVBefore = gaugeSDCRV.balanceOf(user1);
+        uint256 crvDepBefore = crv.balanceOf(MainnetAddresses.CRV_DEPOSITOR);
 
-        // Start process
-        uint256 crvEstimated = (
-            sushiRouter.getAmountsOut(_amount, yveCRVtoCRVPath)
-        )[yveCRVtoCRVPath.length - 1];
-        yveCRV.approve(address(wrapperSwap), _amount);
-        uint256 crvSwapped = wrapperSwap.yveCRVsdCRVSwap(
-            _amount,
+        //Swap
+        uint256 crvEstimated = cvxCRVCRVPool.get_dy(1, 0, amount_1M);
+        cvxCRV.approve(address(wrapperSwap), amount_1M);
+        uint256 crvSwapped = wrapperSwap.sdCRVSwap(
+            address(cvxCRV),
+            amount_1M,
             slippage,
             false,
             true
         );
 
-        // States Variables After
-        uint256 balance_sdcrvGauge = gaugeSDCRV.balanceOf(user1); //sdcrv.balanceOf(user1);
-        uint256 crvDepositorBalanceAfter = crv.balanceOf(
-            MainnetAddresses.CRV_DEPOSITOR
-        );
-        uint256 totalSwappedAfter = wrapperSwap.total_yveCRVsdCRV();
-
-        // Verification
+        //After swap
+        uint256 sdCRVAfter = gaugeSDCRV.balanceOf(user1);
+        uint256 crvDepAfter = crv.balanceOf(MainnetAddresses.CRV_DEPOSITOR);
         uint256 realCRVAmount = crvSwapped -
             ((crvSwapped * depositor.lockIncentive()) /
                 depositor.FEE_DENOMINATOR());
 
-        //console.log("crvSwapped\t", crvSwapped);
-        //console.log("realCRVAmount\t\t", realCRVAmount);
-        //console.log("balance_sdcrvGauge\t", balance_sdcrvGauge);
-
-        assert(balance_sdcrvGauge > 0);
-        assert(crvSwapped >= crvEstimated);
-        assert(realCRVAmount == balance_sdcrvGauge);
-        assert(balance_sdcrvGauge < crvSwapped);
-        assert(
-            (crvDepositorBalanceAfter - crvDepositorBalanceBefore) == crvSwapped
-        );
-        assert((totalSwappedAfter - totalSwappedBefore) == crvSwapped);
+        //Assert
+        assertEq(crvSwapped, crvEstimated);
+        assertGt(crvSwapped, sdCRVBefore + sdCRVAfter); // due to depositor fees
+        assertEq(sdCRVBefore + realCRVAmount, sdCRVAfter);
+        assertEq(crvSwapped, crvDepBefore + crvDepAfter);
     }
 
-    /// @notice Swap cvxCRV into sdCRV with locking without stacking
-    function test07_yveCRVsdCRV_SwapLockNoStack(uint256 _amount) external {
-        // Fuzz Test
-        vm.assume(_amount > amount_1);
-        vm.assume(_amount < amount_1M);
-        //_amount = amount_1M;
-
+    function test13_sdCRVSwapLock() external {
         // Simulate user1 swap no Lock
-        deal(address(cvxCRV), user1, _amount);
-        vm.startPrank(user1);
-        cvxCRV.approve(address(wrapperSwap), _amount);
-        wrapperSwap.cvxCRVsdCRVSwap(_amount, 100, false, false);
+        deal(address(cvxCRV), user2, amount_1M);
+        vm.startPrank(user2);
+        cvxCRV.approve(address(wrapperSwap), amount_1M);
+        wrapperSwap.sdCRVSwap(address(cvxCRV), amount_1k, 100, false, false);
         vm.stopPrank();
 
-        // Give user1 1M cvxCRV
-        deal(address(yveCRV), user2, _amount);
+        deal(address(yveCRV), user1, amount_1M);
+        vm.startPrank(user1);
 
-        // Impersonate account
-        vm.startPrank(user2);
-
-        // State Variable Before
-        uint256 totalSwappedBefore = wrapperSwap.total_yveCRVsdCRV();
-
-        // Start process
+        //Before Swap
+        uint256 sdCRVBefore = sdCRV.balanceOf(user1);
+        uint256 crvDepBefore = crv.balanceOf(MainnetAddresses.CRV_DEPOSITOR);
         uint256 incentive = depositor.incentiveToken();
+
+        //Swap
         uint256 crvEstimated = (
-            sushiRouter.getAmountsOut(_amount, yveCRVtoCRVPath)
+            sushiRouter.getAmountsOut(amount_1k, yveCRVtoCRVPath)
         )[yveCRVtoCRVPath.length - 1];
-        yveCRV.approve(address(wrapperSwap), _amount);
-        uint256 crvSwapped = wrapperSwap.yveCRVsdCRVSwap(
-            _amount,
+        yveCRV.approve(address(wrapperSwap), amount_1k);
+        uint256 crvSwapped = wrapperSwap.sdCRVSwap(
+            address(yveCRV),
+            amount_1k,
             slippage,
             true,
             false
         );
 
-        // State Variables After
-        uint256 crvDepositorAfter = crv.balanceOf(
-            MainnetAddresses.CRV_DEPOSITOR
-        );
+        //After swap
+        uint256 sdCRVAfter = sdCRV.balanceOf(user1);
+        uint256 crvDepAfter = crv.balanceOf(MainnetAddresses.CRV_DEPOSITOR);
         uint256 crvLockerAfter = crv.balanceOf(MainnetAddresses.CRV_LOCKER);
-        uint256 totalSwappedAfter = wrapperSwap.total_yveCRVsdCRV();
-
-        // Verification
-        uint256 balance_sdcrv = sdcrv.balanceOf(user2);
-
         uint256 realCRVAmount = crvSwapped + incentive;
 
-        //console.log("crvSwapped\t", crvSwapped);
-        //console.log("realCRVAmount\t", realCRVAmount);
-        //console.log("balance_sdcrv\t", balance_sdcrv);
-
-        assert(incentive > 0);
-        assert(balance_sdcrv > 0);
-        assert(crvSwapped >= crvEstimated);
-        assert(realCRVAmount == balance_sdcrv);
-        assert(balance_sdcrv > crvSwapped);
-        assert(crvDepositorAfter == 0);
-        assert(crvLockerAfter == 0);
-        assert((totalSwappedAfter - totalSwappedBefore) == crvSwapped);
+        //Assert
+        assertGt(incentive, 0);
+        assertGt(crvDepBefore, 0);
+        assertEq(crvDepAfter, 0);
+        assertEq(crvLockerAfter, 0);
+        assertEq(crvSwapped, crvEstimated);
+        assertLt(crvSwapped, sdCRVBefore + sdCRVAfter);
+        assertEq(sdCRVBefore + realCRVAmount, sdCRVAfter);
     }
 
-    /// @notice Swap cvxCRV into sdCRV with locking with stacking
-    function test08_yveCRVsdCRV_SwapLockStack(uint256 _amount) external {
-        // Fuzz Test
-        vm.assume(_amount > amount_1);
-        vm.assume(_amount < amount_1M);
-        //_amount = amount_1M;
+    function test21_rescueERC20() external {
+        deal(address(crv), address(wrapperSwap), amount_1k);
+        vm.startPrank(deployer);
 
-        // Simulate user1 swap no Lock
-        deal(address(cvxCRV), user1, _amount);
-        vm.startPrank(user1);
-        cvxCRV.approve(address(wrapperSwap), _amount);
-        wrapperSwap.cvxCRVsdCRVSwap(_amount, 100, false, false);
-        vm.stopPrank();
+        uint256 crvBefore = crv.balanceOf(deployer);
+        wrapperSwap.rescueERC20(address(crv), deployer);
+        uint256 crvAfter = crv.balanceOf(deployer);
 
-        // Give user1 1M cvxCRV
-        deal(address(yveCRV), user2, _amount);
+        assertEq(crvAfter, crvBefore + 1_000e18);
+    }
 
-        // Impersonate account
-        vm.startPrank(user2);
+    function test22_setCRVDepositor() external {
+        vm.prank(user1);
+        vm.expectRevert("only owner");
+        wrapperSwap.setCRVDepositor(address(0));
 
-        // State Variable Before
-        uint256 totalSwappedBefore = wrapperSwap.total_yveCRVsdCRV();
+        vm.startPrank(deployer);
+        vm.expectRevert("!address(0)");
+        wrapperSwap.setCRVDepositor(address(0));
 
-        // Start process
-        uint256 incentive = depositor.incentiveToken();
-        uint256 crvEstimated = (
-            sushiRouter.getAmountsOut(_amount, yveCRVtoCRVPath)
-        )[yveCRVtoCRVPath.length - 1];
-        yveCRV.approve(address(wrapperSwap), _amount);
-        uint256 crvSwapped = wrapperSwap.yveCRVsdCRVSwap(
-            _amount,
-            slippage,
-            true,
-            true
-        );
+        wrapperSwap.setCRVDepositor(fake1);
+        address newDep = wrapperSwap.CRV_Depositor();
 
-        // State Variables After
-        uint256 crvDepositorAfter = crv.balanceOf(
-            MainnetAddresses.CRV_DEPOSITOR
-        );
-        uint256 crvLockerAfter = crv.balanceOf(MainnetAddresses.CRV_LOCKER);
-        uint256 totalSwappedAfter = wrapperSwap.total_yveCRVsdCRV();
+        assertEq(newDep, fake1);
+    }
 
-        // Verification
-        uint256 balance_sdcrvGauge = gaugeSDCRV.balanceOf(user2);
+    function test23_setOwner() external {
+        vm.prank(user1);
+        vm.expectRevert("only owner");
+        wrapperSwap.setOwner(user2);
 
-        uint256 realCRVAmount = crvSwapped + incentive;
+        vm.prank(deployer);
+        wrapperSwap.setOwner(user2);
 
-        //console.log("crvSwapped\t", crvSwapped);
-        //console.log("realCRVAmount\t", realCRVAmount);
-        //console.log("balance_sdcrvGauge\t", balance_sdcrvGauge);
+        address newOwner = wrapperSwap.owner();
+        assertEq(newOwner, user2);
+    }
 
-        assert(incentive > 0);
-        assert(balance_sdcrvGauge > 0);
-        assert(crvSwapped >= crvEstimated);
-        assert(realCRVAmount == balance_sdcrvGauge);
-        assert(balance_sdcrvGauge > crvSwapped);
-        assert(crvDepositorAfter == 0);
-        assert(crvLockerAfter == 0);
-        assert((totalSwappedAfter - totalSwappedBefore) == crvSwapped);
+    function test24_setYveCRVtoCRVPath() external {
+        address[] memory path = new address[](1);
+        path[0] = address(crv);
+
+        vm.startPrank(deployer);
+        vm.expectRevert("path too short");
+        wrapperSwap.setYveCRVtoCRVPath(path);
+
+        path = new address[](2);
+        path[0] = address(crv);
+        path[1] = address(sdCRV);
+        wrapperSwap.setYveCRVtoCRVPath(path);
+
+        address newPath0 = wrapperSwap.yveCRVtoCRVPath(0);
+        address newPath1 = wrapperSwap.yveCRVtoCRVPath(1);
+
+        assertEq(newPath0, address(crv));
+        assertEq(newPath1, address(sdCRV));
+    }
+
+    function test25_setcvxCRVCRVPool() external {
+        vm.startPrank(deployer);
+        vm.expectRevert("!address(0)");
+        wrapperSwap.setcvxCRVCRVPool(address(0));
+
+        wrapperSwap.setcvxCRVCRVPool(fake1);
+
+        address newPool = wrapperSwap.cvxCRVCRVPool();
+
+        assertEq(newPool, fake1);
     }
 }
