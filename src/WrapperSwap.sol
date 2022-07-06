@@ -65,8 +65,7 @@ contract WrapperSwap {
         // Swap on Curve or on Sushi
         if (_token == CVXCRV) {
             _crvAmount = _swapOnCurve(_amount, _slippage);
-        }
-        if (_token == YVECRV) {
+        } else {
             _crvAmount = _swapOnSushi(_amount, _slippage);
         }
 
