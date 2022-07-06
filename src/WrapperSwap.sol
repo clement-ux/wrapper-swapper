@@ -58,12 +58,7 @@ contract WrapperSwap {
         require(_token == CVXCRV || _token == YVECRV, "only cvxCRV or yveCRV!");
 
         // get xxxCRV from user
-        bool success = IERC20(_token).transferFrom(
-            msg.sender,
-            address(this),
-            _amount
-        );
-        require(success, "transfer failed");
+        IERC20(_token).transferFrom(msg.sender, address(this), _amount);
 
         uint256 _crvAmount;
 
@@ -186,7 +181,12 @@ contract WrapperSwap {
     }
 
     // ---- Events ---- //
-    event SEND_DEPOSITOR(address _fromToken, address _token, address _depositor, uint256 _amount);
+    event SEND_DEPOSITOR(
+        address _fromToken,
+        address _token,
+        address _depositor,
+        uint256 _amount
+    );
     event RESCUE_ERC20(address _token, address _to);
 
     // --------- Only Test ---------- //
